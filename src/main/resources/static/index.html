@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>Git stat</title>
+    <link rel="stylesheet" href="styles.css"/>
+</head>
+<body>
+<header>
+    <h1>Git stat</h1>
+    <p>Статистика строк Java-кода и тестов по сервисам корпоративного GitLab</p>
+</header>
+
+<main>
+    <section class="card">
+        <h2>Импорт реестра</h2>
+        <form id="importForm">
+            <input type="file" id="csvFile" accept=".csv"/>
+            <button type="submit">Импортировать CSV</button>
+        </form>
+        <pre id="importResult"></pre>
+    </section>
+
+    <section class="card">
+        <h2>Синхронизация</h2>
+        <button id="syncAllButton">Синхронизировать все сервисы</button>
+        <pre id="syncResult"></pre>
+    </section>
+
+    <section class="card">
+        <h2>Сводка</h2>
+        <div id="summary" class="summary-grid"></div>
+    </section>
+
+    <section class="card">
+        <h2>Группы</h2>
+        <table id="groupsTable">
+            <thead>
+            <tr>
+                <th>Группа</th>
+                <th>Сервисов</th>
+                <th>Код, строк</th>
+                <th>Тесты, строк</th>
+                <th>Всего</th>
+                <th>Тесты/код</th>
+            </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </section>
+
+    <section class="card">
+        <h2>Сервисы</h2>
+        <table id="servicesTable">
+            <thead>
+            <tr>
+                <th>Группа</th>
+                <th>Сервис</th>
+                <th>Ветка</th>
+                <th>Код, строк</th>
+                <th>Тесты, строк</th>
+                <th>Статус</th>
+                <th>Действие</th>
+            </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </section>
+
+    <section class="card">
+        <h2>Сотрудники</h2>
+        <table id="authorsTable">
+            <thead>
+            <tr>
+                <th>Имя</th>
+                <th>Email</th>
+                <th>Коммитов</th>
+                <th>Добавлено кода</th>
+                <th>Удалено кода</th>
+                <th>Добавлено тестов</th>
+                <th>Удалено тестов</th>
+                <th>Сервисов</th>
+            </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </section>
+
+    <section class="card">
+        <h2>Задачи синхронизации</h2>
+        <table id="jobsTable">
+            <thead>
+            <tr>
+                <th>ID</th>
+                <th>Сервис</th>
+                <th>Статус</th>
+                <th>Начало</th>
+                <th>Окончание</th>
+                <th>Коммитов</th>
+                <th>Файлов</th>
+                <th>Ошибка</th>
+            </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </section>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>
