@@ -5,8 +5,10 @@ const api = {
     authors: "/api/v1/stats/authors",
     jobs: "/api/v1/sync/jobs",
     importRegistry: "/api/v1/registry/import",
+    importDefaultRegistry: "/api/v1/registry/import-default",
+    defaultRegistryStatus: "/api/v1/registry/default-status",
     syncAll: "/api/v1/sync/all",
-    syncService: (id) => `/api/v1/sync/services/${id}`
+    syncService: (id) => `/api/v1/sync/services/${id}`,
 };
 
 function escapeHtml(value) {
@@ -44,7 +46,10 @@ function formatDate(value) {
 }
 
 function setText(id, text) {
-    document.getElementById(id).textContent = text;
+    const element = document.getElementById(id);
+    if (element) {
+        element.textContent = text;
+    }
 }
 
 async function fetchJson(url, options) {
@@ -56,6 +61,57 @@ async function fetchJson(url, options) {
     }
 
     return data;
+}
+
+function getSelectedBranch() {
+    const select = document.getElementById("branchSelect");
+    const manualInput = document.getElementById("branchManual");
+
+    if (!select) {
+        return "";
+    }
+
+    if (select.value === "manual") {
+        return manualInput ? manualInput.value.trim() : "";
+    }
+
+    return select.value;
+}
+
+function validateSelectedBranch(branch) {
+    const select = document.getElementById("branchSelect");
+
+    if (select && select.value === "manual" && !branch) {
+        throw new Error("Введите название ветки вручную");
+    }
+}
+
+function updateManualBranchVisibility() {
+    const select = document.getElementById("branchSelect");
+    const manualRow = document.getElementById("manualBranchRow");
+
+    if (!select || !manualRow) {
+        return;
+    }
+
+    if (select.value === "manual") {
+        manualRow.classList.remove("hidden");
+    } else {
+        manualRow.classList.add("hidden");
+    }
+}
+
+function appendBranch(url, branch) {
+    if (!branch) {
+        return url;
+    }
+
+    const separator = url.includes("?") ? "&" : "?";
+    return `${url}${separator}branch=${encodeURIComponent(branch)}`;
+}
+
+function branchLabel(branch) {
+    return branch ? branch : "по умолчанию";
 }
 
 function renderSummary(summary) {
@@ -92,7 +148,9 @@ function renderSummary(summary) {
 function renderGroups(rows) {
     const tbody = document.querySelector("#groupsTable tbody");
 
-    tbody.innerHTML = rows.map(row => `
+    tbody.innerHTML = rows
+        .map(
+            (row) => `
         <tr>
             <td>${escapeHtml(row.groupName)}</td>
             <td>${formatNumber(row.serviceCount)}</td>
@@ -101,13 +159,17 @@ function renderGroups(rows) {
             <td>${formatNumber(row.totalLines)}</td>
             <td>${formatRatio(row.testToCodeRatio)}</td>
         </tr>
-    `).join("");
+    `,
+        )
+        .join("");
 }
 
 function renderServices(rows) {
     const tbody = document.querySelector("#servicesTable tbody");
 
-    tbody.innerHTML = rows.map(row => `
+    tbody.innerHTML = rows
+        .map(
+            (row) => `
         <tr>
             <td>${escapeHtml(row.groupName)}</td>
             <td>${escapeHtml(row.serviceName)}</td>
@@ -123,16 +185,31 @@ function renderServices(rows) {
                 </button>
             </td>
         </tr>
-    `).join("");
+    `,
+        )
+        .join("");
 
-    tbody.querySelectorAll("[data-sync-service]").forEach(button => {
+    tbody.querySelectorAll("[data-sync-service]").forEach((button) => {
         button.addEventListener("click", async () => {
             const serviceId = button.getAttribute("data-sync-service");
-            button.disabled = true;
-            setText("syncResult", "Синхронизация сервиса " + serviceId + "...");
+            const branch = getSelectedBranch();
 
             try {
-                const job = await fetchJson(api.syncService(serviceId), {method: "POST"});
+                validateSelectedBranch(branch);
+            } catch (error) {
+                setText("syncResult", error.message);
+                return;
+            }
+
+            button.disabled = true;
+            setText(
+                "syncResult",
+                `Синхронизация сервиса ${serviceId}, ветка: ${branchLabel(branch)}...`,
+            );
+
+            try {
+                const url = appendBranch(api.syncService(serviceId), branch);
+                const job = await fetchJson(url, { method: "POST" });
                 setText("syncResult", JSON.stringify(job, null, 2));
                 await loadAll();
             } catch (error) {
@@ -147,7 +224,9 @@ function renderServices(rows) {
 function renderAuthors(rows) {
     const tbody = document.querySelector("#authorsTable tbody");
 
-    tbody.innerHTML = rows.map(row => `
+    tbody.innerHTML = rows
+        .map(
+            (row) => `
         <tr>
             <td>${escapeHtml(row.authorName || "-")}</td>
             <td>${escapeHtml(row.authorEmail)}</td>
@@ -158,13 +237,17 @@ function renderAuthors(rows) {
             <td>${formatNumber(row.removedTestLines)}</td>
             <td>${formatNumber(row.serviceCount)}</td>
         </tr>
-    `).join("");
+    `,
+        )
+        .join("");
 }
 
 function renderJobs(rows) {
     const tbody = document.querySelector("#jobsTable tbody");
 
-    tbody.innerHTML = rows.map(row => `
+    tbody.innerHTML = rows
+        .map(
+            (row) => `
         <tr>
             <td>${escapeHtml(row.id)}</td>
             <td>${escapeHtml(row.serviceName)}</td>
@@ -177,7 +260,9 @@ function renderJobs(rows) {
             <td>${formatNumber(row.filesProcessed)}</td>
             <td>${escapeHtml(row.errorMessage || "")}</td>
         </tr>
-    `).join("");
+    `,
+        )
+        .join("");
 }
 
 async function loadAll() {
@@ -187,7 +272,7 @@ async function loadAll() {
             fetchJson(api.groups),
             fetchJson(api.services),
             fetchJson(api.authors),
-            fetchJson(api.jobs)
+            fetchJson(api.jobs),
         ]);
 
         renderSummary(summary);
@@ -200,42 +285,109 @@ async function loadAll() {
     }
 }
 
-document.getElementById("importForm").addEventListener("submit", async (event) => {
-    event.preventDefault();
-
-    const fileInput = document.getElementById("csvFile");
-    const file = fileInput.files[0];
-
-    if (!file) {
-        setText("importResult", "Выберите CSV-файл");
-        return;
-    }
-
-    const formData = new FormData();
-    formData.append("file", file);
-
-    setText("importResult", "Импорт...");
+async function loadDefaultRegistryStatus() {
+    const button = document.getElementById("importCatenaButton");
+    const status = document.getElementById("catenaStatus");
 
     try {
-        const result = await fetchJson(api.importRegistry, {
-            method: "POST",
-            body: formData
-        });
+        const data = await fetchJson(api.defaultRegistryStatus);
 
-        setText("importResult", JSON.stringify(result, null, 2));
-        await loadAll();
+        if (data.available) {
+            if (status) {
+                status.textContent = `Файл ${data.filename} доступен для импорта`;
+            }
+            if (button) {
+                button.disabled = false;
+            }
+        } else {
+            if (status) {
+                status.textContent = `Файл ${data.filename} не найден в src/main/resources`;
+            }
+            if (button) {
+                button.disabled = true;
+            }
+        }
     } catch (error) {
-        setText("importResult", error.message);
+        if (status) {
+            status.textContent = "Не удалось проверить наличие catena.csv";
+        }
+        if (button) {
+            button.disabled = true;
+        }
     }
-});
+}
+
+document
+    .getElementById("importForm")
+    .addEventListener("submit", async (event) => {
+        event.preventDefault();
+
+        const fileInput = document.getElementById("csvFile");
+        const file = fileInput.files[0];
+
+        if (!file) {
+            setText("importResult", "Выберите CSV-файл");
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append("file", file);
+
+        setText("importResult", "Импорт...");
+
+        try {
+            const result = await fetchJson(api.importRegistry, {
+                method: "POST",
+                body: formData,
+            });
+
+            setText("importResult", JSON.stringify(result, null, 2));
+            await loadAll();
+        } catch (error) {
+            setText("importResult", error.message);
+        }
+    });
+
+document
+    .getElementById("importCatenaButton")
+    .addEventListener("click", async () => {
+        const button = document.getElementById("importCatenaButton");
+        button.disabled = true;
+        setText("importResult", "Импорт catena.csv...");
+
+        try {
+            const result = await fetchJson(api.importDefaultRegistry, {
+                method: "POST",
+            });
+            setText("importResult", JSON.stringify(result, null, 2));
+            await loadAll();
+        } catch (error) {
+            setText("importResult", error.message);
+        } finally {
+            await loadDefaultRegistryStatus();
+        }
+    });
 
 document.getElementById("syncAllButton").addEventListener("click", async () => {
     const button = document.getElementById("syncAllButton");
-    button.disabled = true;
-    setText("syncResult", "Запущена синхронизация всех сервисов...");
+    const branch = getSelectedBranch();
 
     try {
-        const jobs = await fetchJson(api.syncAll, {method: "POST"});
+        validateSelectedBranch(branch);
+    } catch (error) {
+        setText("syncResult", error.message);
+        return;
+    }
+
+    button.disabled = true;
+    setText(
+        "syncResult",
+        `Запущена синхронизация всех сервисов, ветка: ${branchLabel(branch)}...`,
+    );
+
+    try {
+        const url = appendBranch(api.syncAll, branch);
+        const jobs = await fetchJson(url, { method: "POST" });
         setText("syncResult", JSON.stringify(jobs, null, 2));
         await loadAll();
     } catch (error) {
@@ -245,4 +397,14 @@ document.getElementById("syncAllButton").addEventListener("click", async () => {
     }
 });
 
-loadAll();
+document
+    .getElementById("branchSelect")
+    .addEventListener("change", updateManualBranchVisibility);
+
+async function init() {
+    updateManualBranchVisibility();
+    await loadDefaultRegistryStatus();
+    await loadAll();
+}
+
+init();

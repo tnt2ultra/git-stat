@@ -2,15 +2,18 @@ package com.anri.gitloc.service;
 
 import com.anri.gitloc.config.AppProperties;
 import com.anri.gitloc.dto.CsvRowErrorDto;
+import com.anri.gitloc.dto.DefaultRegistryStatusDto;
 import com.anri.gitloc.dto.ImportResultDto;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVRecord;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
@@ -32,11 +35,13 @@ public class CsvImportService {
             "url репозитория в корпоративном GitLab"
     };
 
+    private static final String DEFAULT_REGISTRY_FILE = "catena.csv";
+
     private final AppProperties appProperties;
     private final RegistryPersistenceService registryPersistenceService;
 
     /**
-     * Импортирует CSV-файл.
+     * Импортирует CSV-файл, загруженный пользователем.
      *
      * @param file CSV-файл
      * @return результат импорта
@@ -47,11 +52,31 @@ public class CsvImportService {
             return singleError(0, "file", "Файл пуст");
         }
 
-        String content = readContentStripBom(file);
+        try (InputStream inputStream = file.getInputStream()) {
+            return importCsv(inputStream, file.getOriginalFilename());
+        }
+    }
+
+    /**
+     * Импортирует CSV из потока.
+     *
+     * @param inputStream поток с CSV-содержимым
+     * @param filename    имя файла для диагностических сообщений
+     * @return результат импорта
+     * @throws IOException ошибка чтения потока
+     */
+    public ImportResultDto importCsv(InputStream inputStream, String filename) throws IOException {
+        if (inputStream == null) {
+            return singleError(0, "file", "Поток файла пуст");
+        }
+
+        String content = readContentStripBom(inputStream);
+
+        if (content.isBlank()) {
+            return singleError(0, "file", "Файл пуст");
+        }
 
         CSVFormat detectFormat = baseFormat();
-
-        List<CsvRowErrorDto> errors = new ArrayList<>();
 
         try (CSVParser detectParser = CSVParser.parse(content, detectFormat)) {
             List<CSVRecord> allRecords = detectParser.getRecords();
@@ -78,6 +103,7 @@ public class CsvImportService {
                 .get();
 
         List<ParsedRow> rows = new ArrayList<>();
+        List<CsvRowErrorDto> errors = new ArrayList<>();
 
         try (CSVParser parser = CSVParser.parse(content, dataFormat)) {
             for (CSVRecord record : parser) {
@@ -111,6 +137,38 @@ public class CsvImportService {
         }
 
         return registryPersistenceService.importRows(rows);
+    }
+
+    /**
+     * Импортирует предустановленный файл catena.csv из classpath.
+     *
+     * @return результат импорта
+     * @throws IOException ошибка чтения ресурса
+     */
+    public ImportResultDto importDefault() throws IOException {
+        ClassPathResource resource = new ClassPathResource(DEFAULT_REGISTRY_FILE);
+
+        if (!resource.exists()) {
+            return singleError(
+                    0,
+                    "file",
+                    "Файл " + DEFAULT_REGISTRY_FILE + " не найден в src/main/resources"
+            );
+        }
+
+        try (InputStream inputStream = resource.getInputStream()) {
+            return importCsv(inputStream, DEFAULT_REGISTRY_FILE);
+        }
+    }
+
+    /**
+     * Возвращает информацию о доступности предустановленного файла.
+     *
+     * @return статус default-реестра
+     */
+    public DefaultRegistryStatusDto getDefaultRegistryStatus() {
+        ClassPathResource resource = new ClassPathResource(DEFAULT_REGISTRY_FILE);
+        return new DefaultRegistryStatusDto(DEFAULT_REGISTRY_FILE, resource.exists());
     }
 
     /**
@@ -246,14 +304,15 @@ public class CsvImportService {
     }
 
     /**
-     * Читает содержимое файла и удаляет BOM, если он есть.
+     * Читает содержимое потока и удаляет BOM, если он есть.
      *
-     * @param file загруженный файл
+     * @param inputStream входной поток
      * @return содержимое файла без BOM
      * @throws IOException ошибка чтения
      */
-    private String readContentStripBom(MultipartFile file) throws IOException {
-        String content = new String(file.getBytes(), StandardCharsets.UTF_8);
+    private String readContentStripBom(InputStream inputStream) throws IOException {
+        byte[] bytes = inputStream.readAllBytes();
+        String content = new String(bytes, StandardCharsets.UTF_8);
 
         if (!content.isEmpty() && content.charAt(0) == '\uFEFF') {
             content = content.substring(1);
@@ -282,7 +341,6 @@ public class CsvImportService {
                 recordNumber = 1;
             }
 
-            // Так как заголовок пропускается, первая data-запись обычно соответствует второй строке файла.
             long approximateLine = recordNumber + 1;
 
             return approximateLine > Integer.MAX_VALUE
@@ -290,7 +348,7 @@ public class CsvImportService {
                     : (int) approximateLine;
         }
 
-        int limit = (int) charPos;
+        int limit = (int) Math.min(charPos, content.length());
         int line = 1;
 
         for (int i = 0; i < limit; i++) {

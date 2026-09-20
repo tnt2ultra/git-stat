@@ -4,7 +4,7 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 /**
- * Точка входа MVP-сервиса статистики Java-строк по Git-репозиториям.
+ * Точка входа сервиса статистики Java-строк по Git-репозиториям.
  */
 @SpringBootApplication
 public class GitLocMvpApplication {

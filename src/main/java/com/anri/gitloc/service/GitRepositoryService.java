@@ -1,6 +1,7 @@
 package com.anri.gitloc.service;
 
 import com.anri.gitloc.config.AppProperties;
+import com.anri.gitloc.domain.GitService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -19,9 +20,11 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.regex.Pattern;
 
 /**
  * Сервис низкоуровневых операций с Git-репозиторием.
@@ -29,6 +32,8 @@ import java.util.concurrent.ExecutionException;
 @Service
 @RequiredArgsConstructor
 public class GitRepositoryService {
+
+    private static final Pattern BRANCH_PATTERN = Pattern.compile("^[A-Za-z0-9._/-]+$");
 
     private final AppProperties appProperties;
     private final GitCommandService gitCommandService;
@@ -48,7 +53,7 @@ public class GitRepositoryService {
      *
      * @param service сервис
      */
-    public void ensureRepository(com.anri.gitloc.domain.GitService service) {
+    public void ensureRepository(GitService service) {
         Path repoPath = gitStorageService.getRepoPath(service.getId());
 
         if (!Files.exists(repoPath.resolve("HEAD"))) {
@@ -68,13 +73,50 @@ public class GitRepositoryService {
     }
 
     /**
-     * Возвращает SHA текущего HEAD.
+     * Возвращает ветку для анализа.
+     * <p>
+     * Если requestedBranch пустая, возвращается ветка по умолчанию.
+     * Иначе выполняется валидация и проверка существования ветки.
+     *
+     * @param repoPath         путь к репозиторию
+     * @param requestedBranch  запрошенная ветка или null/пустая строка для default
+     * @return имя ветки для анализа
+     */
+    public String resolveBranch(Path repoPath, String requestedBranch) {
+        if (requestedBranch == null || requestedBranch.isBlank()) {
+            String detected = defaultBranch(repoPath);
+            if (detected == null || detected.isBlank()) {
+                throw new GitException("Не удалось определить ветку по умолчанию");
+            }
+            return detected;
+        }
+
+        String branch = requestedBranch.trim();
+        validateBranchName(branch);
+
+        String commit = tryRevParse(repoPath, branch + "^{commit}");
+
+        if (commit.isBlank()) {
+            commit = tryRevParse(repoPath, "refs/heads/" + branch + "^{commit}");
+        }
+
+        if (commit.isBlank()) {
+            throw new GitException("Ветка не найдена в репозитории: " + branch);
+        }
+
+        return branch;
+    }
+
+    /**
+     * Возвращает SHA текущего HEAD для указанной ветки.
      *
      * @param repoPath путь к репозиторию
+     * @param branch   ветка
      * @return SHA
      */
-    public String headSha(Path repoPath) {
-        return gitCommandService.run(repoPath, List.of("rev-parse", "HEAD")).trim();
+    public String headSha(Path repoPath, String branch) {
+        String ref = toRef(branch);
+        return gitCommandService.run(repoPath, List.of("rev-parse", ref + "^{commit}")).trim();
     }
 
     /**
@@ -85,23 +127,40 @@ public class GitRepositoryService {
      */
     public String defaultBranch(Path repoPath) {
         try {
-            return gitCommandService.run(repoPath, List.of("symbolic-ref", "--short", "HEAD")).trim();
+            String value = gitCommandService.run(repoPath, List.of("symbolic-ref", "--short", "HEAD")).trim();
+            if (!value.isBlank()) {
+                return value;
+            }
         } catch (GitException e) {
-            return "HEAD";
+            // fallback ниже
         }
+
+        try {
+            String value = gitCommandService.run(repoPath, List.of("rev-parse", "--abbrev-ref", "HEAD")).trim();
+            if (!value.isBlank()) {
+                return value;
+            }
+        } catch (GitException e) {
+            // fallback ниже
+        }
+
+        return "HEAD";
     }
 
     /**
-     * Возвращает вывод git log с numstat по всей истории default branch.
+     * Возвращает вывод git log с numstat для выбранной ветки.
      * <p>
      * Pathspec намеренно не используется, чтобы отбор .java-файлов был
      * идентичен отбору в parseSnapshot и не зависел от семантики pathspec git.
      * Фильтрация по расширению выполняется на стороне Java-парсера.
      *
      * @param repoPath путь к репозиторию
+     * @param branch   ветка
      * @return вывод команды
      */
-    public String logJavaNumstat(Path repoPath) {
+    public String logJavaNumstat(Path repoPath, String branch) {
+        String ref = toRef(branch);
+
         return gitCommandService.run(
                 repoPath,
                 List.of(
@@ -111,25 +170,25 @@ public class GitRepositoryService {
                         "--reverse",
                         "--date=iso-strict",
                         "--pretty=format:%H%x09%ad%x09%ae%x09%an%x09%s",
-                        "--numstat"
+                        "--numstat",
+                        ref
                 )
         );
     }
 
     /**
-     * Возвращает список Java-файлов в HEAD вместе с их oid.
-     * <p>
-     * Используется ls-tree без pathspec и без --name-only, чтобы получить
-     * надёжный путь и идентификатор blob для каждого файла. Фильтрация по
-     * расширению .java выполняется в Java.
+     * Возвращает список Java-файлов в выбранной ветке вместе с их oid.
      *
      * @param repoPath путь к репозиторию
+     * @param branch   ветка
      * @return список ссылок на Java-файлы
      */
-    public List<JavaFileRef> listJavaFiles(Path repoPath) {
+    public List<JavaFileRef> listJavaFiles(Path repoPath, String branch) {
+        String ref = toRef(branch);
+
         String output = gitCommandService.run(
                 repoPath,
-                List.of("ls-tree", "-r", "HEAD")
+                List.of("ls-tree", "-r", ref)
         );
 
         List<JavaFileRef> result = new ArrayList<>();
@@ -160,7 +219,7 @@ public class GitRepositoryService {
                 continue;
             }
 
-            if (!path.toLowerCase(java.util.Locale.ROOT).endsWith(".java")) {
+            if (!path.toLowerCase(Locale.ROOT).endsWith(".java")) {
                 continue;
             }
 
@@ -173,7 +232,7 @@ public class GitRepositoryService {
     /**
      * Считает количество строк для списка Java-файлов через git cat-file --batch.
      * <p>
-     * Запросы выполняются по oid, а не по HEAD:path, что исключает сбои
+     * Запросы выполняются по oid, а не по branch:path, что исключает сбои
      * резолвинга и молчаливое получение нуля строк.
      *
      * @param repoPath путь к репозиторию
@@ -283,6 +342,64 @@ public class GitRepositoryService {
         } catch (URISyntaxException e) {
             throw new GitException("Некорректный URL репозитория", e);
         }
+    }
+
+    private String tryRevParse(Path repoPath, String rev) {
+        try {
+            return gitCommandService.run(repoPath, List.of("rev-parse", "--verify", "--quiet", rev)).trim();
+        } catch (GitException e) {
+            return "";
+        }
+    }
+
+    private void validateBranchName(String branch) {
+        if (branch == null || branch.isBlank()) {
+            throw new GitException("Название ветки пустое");
+        }
+
+        if (branch.length() > 255) {
+            throw new GitException("Название ветки слишком длинное");
+        }
+
+        if (!BRANCH_PATTERN.matcher(branch).matches()) {
+            throw new GitException(
+                    "Некорректное название ветки. Допустимы латинские буквы, цифры и символы . _ / -"
+            );
+        }
+
+        if (branch.startsWith("-")) {
+            throw new GitException("Название ветки не должно начинаться с дефиса");
+        }
+
+        if (branch.startsWith("/") || branch.endsWith("/")) {
+            throw new GitException("Название ветки не должно начинаться или заканчиваться слэшем");
+        }
+
+        if (branch.contains("..")) {
+            throw new GitException("Название ветки не должно содержать две точки подряд");
+        }
+
+        if (branch.contains("//")) {
+            throw new GitException("Название ветки не должно содержать два слэша подряд");
+        }
+
+        if (branch.endsWith(".lock")) {
+            throw new GitException("Название ветки не должно заканчиваться на .lock");
+        }
+    }
+
+    private String toRef(String branch) {
+        if (branch == null || branch.isBlank()) {
+            return "HEAD";
+        }
+
+        // Если имя ветки начинается с дефиса, явно указываем refs/heads,
+        // чтобы Git не воспринял его как опцию.
+        if (branch.startsWith("-")) {
+            return "refs/heads/" + branch;
+        }
+
+        return branch;
     }
 
     private String readLine(InputStream inputStream) throws IOException {

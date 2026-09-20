@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -24,16 +25,39 @@ public class SyncController {
     private final SyncService syncService;
     private final SyncJobService syncJobService;
 
+    /**
+     * Синхронизация одного сервиса.
+     *
+     * @param serviceId идентификатор сервиса
+     * @param branch    необязательная ветка
+     * @return задача синхронизации
+     */
     @PostMapping("/services/{serviceId}")
-    public ResponseEntity<SyncJobDto> syncService(@PathVariable Long serviceId) {
-        return ResponseEntity.ok(syncService.syncOne(serviceId));
+    public ResponseEntity<SyncJobDto> syncService(
+            @PathVariable Long serviceId,
+            @RequestParam(name = "branch", required = false) String branch
+    ) {
+        return ResponseEntity.ok(syncService.syncOne(serviceId, branch));
     }
 
+    /**
+     * Синхронизация всех сервисов.
+     *
+     * @param branch необязательная ветка
+     * @return список задач синхронизации
+     */
     @PostMapping("/all")
-    public ResponseEntity<List<SyncJobDto>> syncAll() {
-        return ResponseEntity.ok(syncService.syncAll());
+    public ResponseEntity<List<SyncJobDto>> syncAll(
+            @RequestParam(name = "branch", required = false) String branch
+    ) {
+        return ResponseEntity.ok(syncService.syncAll(branch));
     }
 
+    /**
+     * Список задач синхронизации.
+     *
+     * @return список задач
+     */
     @GetMapping("/jobs")
     public ResponseEntity<List<SyncJobDto>> jobs() {
         return ResponseEntity.ok(syncJobService.getAllDto());

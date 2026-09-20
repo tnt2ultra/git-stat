@@ -118,6 +118,10 @@ public class GitCommandService {
         List<String> command = new ArrayList<>();
         command.add("git");
 
+        // Отключаем экранирование путей, чтобы парсер получал сырые UTF-8 пути.
+        command.add("-c");
+        command.add("core.quotePath=false");
+
         if (repo != null) {
             command.add("-C");
             command.add(repo.toString());

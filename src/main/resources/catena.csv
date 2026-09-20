@@ -1,0 +1,3 @@
+"название группы";"название сервиса";"url репозитория в корпоративном GitLab"
+"compare";"db-compare";"https://gitlab.corp.example/compare/db-compare.git"
+"compare";"pg-compare";"https://gitlab.corp.example/compare/pg-compare.git"

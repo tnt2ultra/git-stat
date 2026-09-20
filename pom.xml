@@ -15,7 +15,7 @@
     <artifactId>git-stat</artifactId>
     <version>0.0.1-SNAPSHOT</version>
     <name>git-stat</name>
-    <description>MVP сервиса статистики строк Java-кода и тестов по Git-репозиториям</description>
+    <description>Сервис статистики строк Java-кода и тестов по Git-репозиториям</description>
 
     <properties>
         <java.version>25</java.version>

@@ -22,19 +22,20 @@ public class SyncService {
     private final SyncJobService syncJobService;
 
     /**
-     * Синхронизирует один сервис.
+     * Синхронизирует один сервис по выбранной ветке.
      *
      * @param serviceId идентификатор сервиса
+     * @param branch    ветка; если null или пустая, используется default branch
      * @return DTO задачи синхронизации
      */
-    public SyncJobDto syncOne(Long serviceId) {
+    public SyncJobDto syncOne(Long serviceId, String branch) {
         GitService service = gitServiceRepository.findById(serviceId)
                 .orElseThrow(() -> new IllegalArgumentException("Сервис не найден: " + serviceId));
 
         var job = syncJobService.start(serviceId);
 
         try {
-            GitAnalysisResult result = gitAnalysisService.analyze(service);
+            GitAnalysisResult result = gitAnalysisService.analyze(service, branch);
             syncPersistenceService.save(serviceId, result);
             syncJobService.success(job.getId(), result);
         } catch (Exception e) {
@@ -45,16 +46,17 @@ public class SyncService {
     }
 
     /**
-     * Синхронизирует все сервисы.
+     * Синхронизирует все сервисы по выбранной ветке.
      *
+     * @param branch ветка; если null или пустая, используется default branch
      * @return список задач синхронизации
      */
-    public List<SyncJobDto> syncAll() {
+    public List<SyncJobDto> syncAll(String branch) {
         List<GitService> services = gitServiceRepository.findAllByOrderByIdAsc();
         List<SyncJobDto> jobs = new ArrayList<>();
 
         for (GitService service : services) {
-            jobs.add(syncOne(service.getId()));
+            jobs.add(syncOne(service.getId(), branch));
         }
 
         return jobs;

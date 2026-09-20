@@ -30,21 +30,22 @@ public class GitAnalysisService {
     private final JavaFileClassifier javaFileClassifier;
 
     /**
-     * Выполняет полный анализ сервиса.
+     * Выполняет анализ сервиса по выбранной ветке.
      *
-     * @param service сервис
+     * @param service         сервис
+     * @param requestedBranch запрошенная ветка; если null или пустая, используется default branch
      * @return результат анализа
      */
-    public GitAnalysisResult analyze(GitService service) {
+    public GitAnalysisResult analyze(GitService service, String requestedBranch) {
         Path repoPath = gitStorageService.getRepoPath(service.getId());
 
         gitRepositoryService.ensureRepository(service);
 
-        String headSha = gitRepositoryService.headSha(repoPath);
-        String branch = gitRepositoryService.defaultBranch(repoPath);
+        String branch = gitRepositoryService.resolveBranch(repoPath, requestedBranch);
+        String headSha = gitRepositoryService.headSha(repoPath, branch);
 
-        LogParseResult logParseResult = parseLog(repoPath);
-        GitAnalysisResult.LocData locData = parseSnapshot(repoPath);
+        LogParseResult logParseResult = parseLog(repoPath, branch);
+        GitAnalysisResult.LocData locData = parseSnapshot(repoPath, branch);
 
         return GitAnalysisResult.builder()
                 .headSha(headSha)
@@ -56,8 +57,8 @@ public class GitAnalysisService {
                 .build();
     }
 
-    private LogParseResult parseLog(Path repoPath) {
-        String output = gitRepositoryService.logJavaNumstat(repoPath);
+    private LogParseResult parseLog(Path repoPath, String branch) {
+        String output = gitRepositoryService.logJavaNumstat(repoPath, branch);
 
         Map<String, AuthorAccumulator> accumulators = new HashMap<>();
         long filesProcessed = 0;
@@ -161,17 +162,19 @@ public class GitAnalysisService {
             );
         }
 
-        long commitsProcessed = authorStats.stream().mapToLong(GitAnalysisResult.AuthorStatData::getCommits).sum();
+        long commitsProcessed = authorStats.stream()
+                .mapToLong(GitAnalysisResult.AuthorStatData::getCommits)
+                .sum();
 
         return new LogParseResult(commitsProcessed, filesProcessed, authorStats);
     }
 
-    private GitAnalysisResult.LocData parseSnapshot(Path repoPath) {
-        List<GitRepositoryService.JavaFileRef> files = gitRepositoryService.listJavaFiles(repoPath);
+    private GitAnalysisResult.LocData parseSnapshot(Path repoPath, String branch) {
+        List<GitRepositoryService.JavaFileRef> files = gitRepositoryService.listJavaFiles(repoPath, branch);
         Map<String, Long> lineCounts = gitRepositoryService.countLines(repoPath, files);
 
-        log.debug("Snapshot: найдено Java-файлов = {}, посчитано строк для = {}",
-                files.size(), lineCounts.size());
+        log.debug("Snapshot: ветка = {}, найдено Java-файлов = {}, посчитано строк для = {}",
+                branch, files.size(), lineCounts.size());
 
         long codeLines = 0;
         long testLines = 0;
